@@ -5,11 +5,17 @@ import authRoutes from "./routes/auth.js";
 import artistRoutes from "./routes/artists.js";
 import showRoutes from "./routes/shows.js";
 import { startCronJobs } from "./jobs/tourChecker.js";
-import db from "./db.js";
+import session from "express-session";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: true,
+  cookie: { httpOnly: true, secure: false }
+}));
 
 // Routes
 app.use("/auth", authRoutes);

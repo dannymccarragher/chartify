@@ -1,72 +1,89 @@
 import axios from "axios";
-import jwt from "jsonwebtoken";
 import db from "../db.js";
 
-async function spotifyCallback(req, res) {
-  const { code, redirectUri, codeVerifier } = req.body;
+async function login(req, res) {
+  const state = crypto.randomUUID();
 
-  console.log("code:", code);
-  console.log("redirectUri:", redirectUri);
-  console.log("codeVerifier:", codeVerifier);
-  if (!code || !redirectUri) {
-    return res.status(400).json({ error: "Missing code or redirectUri" });
+  const client_id = process.env.SPOTIFY_CLIENT_ID;
+  const redirect_uri = process.env.SPOTIFY_REDIRECT_URI;
+  const scope = process.env.SPOTIFY_SCOPE;
+
+  return res.redirect(`https://accounts.spotify.com/authorize?${new URLSearchParams({
+    response_type: 'code',
+    client_id: client_id,
+    scope: scope,
+    redirect_uri: redirect_uri,
+    state: state
+  }).toString()}`);
+}
+
+async function spotifyCallback(req, res) {
+  const code = req.query.code;
+  const state = req.query.state;
+
+  if (state === undefined) {
+    return res.redirect(
+      "/#" + new URLSearchParams({ error: "state_mismatch" }).toString()
+    );
   }
 
+  const client_id = process.env.SPOTIFY_CLIENT_ID;
+  const client_secret = process.env.SPOTIFY_CLIENT_SECRET;
+  const redirect_uri = process.env.SPOTIFY_REDIRECT_URI;
+
   try {
-    // Exchange authorization code for access token using client secret (server-side)
-    const params = new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: redirectUri,
-      client_id: process.env.SPOTIFY_CLIENT_ID,
-      code_verifier: codeVerifier
-    });
 
-
-    const { data: tokenData } = await axios.post(
+    // Exchange auth code for access token and refresh token
+    const response = await axios.post(
       "https://accounts.spotify.com/api/token",
-      params.toString(),
+      new URLSearchParams({
+        code: code,
+        redirect_uri: redirect_uri,
+        grant_type: "authorization_code",
+      }),
       {
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+          "content-type": "application/x-www-form-urlencoded",
+          Authorization:
+            "Basic " +
+            Buffer.from(client_id + ":" + client_secret).toString("base64"),
         },
       }
     );
 
-    const spotifyAccessToken = tokenData.access_token;
+    const { access_token, refresh_token } = response.data;
 
-    // Fetch Spotify user profile
-    const { data: spotifyUser } = await axios.get("https://api.spotify.com/v1/me", {
-      headers: { Authorization: `Bearer ${spotifyAccessToken}` },
+    // 2. Fetch Spotify profile
+    const profileRes = await axios.get("https://api.spotify.com/v1/me", {
+      headers: { Authorization: `Bearer ${access_token}` },
     });
 
+    const { id, display_name, email, images } = profileRes.data;
+
     // Upsert user in DB
-    const { rows } = await db.query(
-      `INSERT INTO users (spotify_id, display_name, email, avatar_url)
-       VALUES ($1, $2, $3, $4)
+    const result = await db.query(
+      `INSERT INTO users (spotify_id, display_name, email, avatar_url, refresh_token)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (spotify_id) DO UPDATE
-       SET display_name = EXCLUDED.display_name,
-           avatar_url = EXCLUDED.avatar_url
+       SET display_name = $2, email = $3, avatar_url = $4, refresh_token = $5
        RETURNING id`,
-      [
-        spotifyUser.id,
-        spotifyUser.display_name,
-        spotifyUser.email,
-        spotifyUser.images?.[0]?.url || null,
-      ]
+      [id, display_name, email, images?.[0]?.url ?? null, refresh_token]
     );
 
-    const userId = rows[0].id;
+    const userId = result.rows[0].id;
 
-    // Issue JWT
-    const token = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "30d" });
 
-    // Return JWT + Spotify token so the app can call Spotify directly (artist search)
-    return res.json({ token, userId, spotifyAccessToken });
+    req.session.userId = userId;
+    req.session.access_token = access_token;
+
+    return res.redirect(
+      "http://127.0.0.1:3000/#"
+    );
   } catch (err) {
-    const spotifyError = err.response?.data;
-    console.error("Spotify auth error:", spotifyError ?? err.message);
-    return res.status(500).json({ error: "Auth failed", detail: spotifyError });
+    console.error("Spotify callback error:", err.message);
+    return res.redirect(
+      "http://127.0.0.1:3000/#" + new URLSearchParams({ error: "invalid_token" }).toString()
+    );
   }
 }
 
@@ -85,4 +102,4 @@ async function registerPushToken(req, res) {
   }
 }
 
-export { spotifyCallback, registerPushToken };
+export { spotifyCallback, registerPushToken, login };
