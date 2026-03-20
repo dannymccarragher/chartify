@@ -126,16 +126,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <aside
         className="hidden lg:flex flex-col fixed left-0 top-0 bottom-0 z-30"
         style={{
-          width: 232,
+          width: 240,
           background: theme.bg.surface,
           borderRight: `1px solid ${theme.border.subtle}`,
         }}
       >
         {/* Logo */}
-        <div className="px-6 pt-7 pb-6">
+        <div className="px-5 pt-7 pb-7">
           <span
-            className="text-xl font-bold"
-            style={{ color: theme.text.primary, letterSpacing: "-0.5px" }}
+            className="text-2xl font-black tracking-tight"
+            style={{
+              background: "linear-gradient(135deg, #a259ff 0%, #1ed760 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
           >
             Chartify
           </span>
@@ -143,6 +148,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Nav links */}
         <nav className="flex-1 px-3 flex flex-col gap-0.5">
+          <p
+            className="text-[10px] uppercase tracking-widest font-semibold px-3 mb-2"
+            style={{ color: theme.text.muted }}
+          >
+            Menu
+          </p>
           {navItems.map(({ href, label, Icon }) => {
             const active =
               href === "/dashboard"
@@ -152,13 +163,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <Link
                 key={href}
                 href={href}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm"
+                className="relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all duration-150"
                 style={{
-                  background: active ? "rgba(162,89,255,0.12)" : "transparent",
+                  background: active ? "rgba(162,89,255,0.1)" : "transparent",
                   color: active ? theme.accent.purple : theme.text.secondary,
                   textDecoration: "none",
                   fontWeight: active ? 600 : 400,
-                  transition: "background 0.15s, color 0.15s",
                 }}
                 onMouseEnter={(e) => {
                   if (!active) {
@@ -173,55 +183,88 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   }
                 }}
               >
-                <Icon />
+                {/* Left accent bar */}
+                {active && (
+                  <span
+                    className="absolute left-0 top-1/2 -translate-y-1/2 rounded-full"
+                    style={{
+                      width: 3,
+                      height: 20,
+                      background: theme.accent.purple,
+                    }}
+                  />
+                )}
+                <span style={{ color: active ? theme.accent.purple : "inherit" }}>
+                  <Icon />
+                </span>
                 {label}
               </Link>
             );
           })}
         </nav>
 
-        {/* User info + logout */}
+        {/* User card + logout */}
         <div
-          className="px-4 py-4"
+          className="px-3 py-4"
           style={{ borderTop: `1px solid ${theme.border.subtle}` }}
         >
-          <div className="flex items-center gap-3 mb-3 px-1">
+          {/* Clickable profile card */}
+          <Link
+            href={`/profile/${user.id}`}
+            className="flex items-center gap-3 p-3 rounded-xl mb-1 transition-all duration-150"
+            style={{
+              textDecoration: "none",
+              background: "transparent",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = theme.bg.elevated;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "transparent";
+            }}
+          >
             {user.avatar_url ? (
               <img
                 src={user.avatar_url}
                 alt={user.display_name}
-                className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                className="w-9 h-9 rounded-full object-cover flex-shrink-0ring-2"
+                style={{ boxShadow: `0 0 0 2px rgba(162,89,255,0.3)` }}
               />
             ) : (
               <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                style={{ background: theme.bg.highlight, color: theme.text.secondary }}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                style={{
+                  background: "rgba(162,89,255,0.15)",
+                  color: theme.accent.purple,
+                  boxShadow: `0 0 0 2px rgba(162,89,255,0.3)`,
+                }}
               >
                 {user.display_name?.[0]?.toUpperCase()}
               </div>
             )}
-            <p
-              className="text-sm font-medium truncate flex-1"
-              style={{ color: theme.text.primary }}
-            >
-              {user.display_name}
-            </p>
-          </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate" style={{ color: theme.text.primary }}>
+                {user.display_name}
+              </p>
+              <p className="text-xs" style={{ color: theme.text.muted }}>
+                View profile →
+              </p>
+            </div>
+          </Link>
 
           <button
             onClick={logout}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm"
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all duration-150"
             style={{
               background: "transparent",
               color: theme.text.muted,
               border: "none",
               cursor: "pointer",
-              transition: "background 0.15s, color 0.15s",
               textAlign: "left",
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.background = theme.bg.elevated;
-              (e.currentTarget as HTMLElement).style.color = theme.text.primary;
+              (e.currentTarget as HTMLElement).style.background = "rgba(255,80,80,0.08)";
+              (e.currentTarget as HTMLElement).style.color = "#ff5050";
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLElement).style.background = "transparent";
@@ -269,7 +312,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* ── Main content ─────────────────────────────────── */}
-      <div className="lg:ml-[232px]">
+      <div className="lg:ml-[240px]">
         <div className="pt-14 pb-20 lg:pt-0 lg:pb-0">{children}</div>
       </div>
 

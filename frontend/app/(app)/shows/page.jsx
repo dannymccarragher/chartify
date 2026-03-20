@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { theme } from "@/constants/theme";
+import { Guitar } from "lucide-react";
 
 const API = "http://127.0.0.1:5000";
 
@@ -31,6 +32,17 @@ function SearchIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="11" cy="11" r="8" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
     </svg>
   );
 }
@@ -65,13 +77,16 @@ function formatTime(timeStr) {
 }
 
 export default function ShowsPage() {
-  const [mode, setMode] = useState("location"); // "location" | "city"
+  const [mode, setMode] = useState("location"); // "location" | "city" | "artist"
   const [locationStatus, setLocationStatus] = useState("idle"); // idle | loading | granted | denied
   const [lat, setLat] = useState(null);
   const [lng, setLng] = useState(null);
 
   const [cityInput, setCityInput] = useState("");
   const [submittedCity, setSubmittedCity] = useState("");
+
+  const [artistInput, setArtistInput] = useState("");
+  const [submittedArtist, setSubmittedArtist] = useState("");
 
   const [genreId, setGenreId] = useState(null);
 
@@ -80,13 +95,16 @@ export default function ShowsPage() {
   const [error, setError] = useState(null);
 
   const cityInputRef = useRef(null);
+  const artistInputRef = useRef(null);
 
-  const fetchShows = useCallback(async ({ lat, lng, city, genreId }) => {
+  const fetchShows = useCallback(async ({ lat, lng, city, keyword, genreId }) => {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (city) {
+      if (keyword) {
+        params.set("keyword", keyword);
+      } else if (city) {
         params.set("city", city);
       } else {
         params.set("lat", lat);
@@ -132,12 +150,22 @@ export default function ShowsPage() {
     fetchShows({ city: trimmed, genreId });
   }
 
-  // Re-fetch when genre changes (if we already have a location or city)
+  function submitArtist(e) {
+    e?.preventDefault();
+    const trimmed = artistInput.trim();
+    if (!trimmed) return;
+    setSubmittedArtist(trimmed);
+    fetchShows({ keyword: trimmed, genreId });
+  }
+
+  // Re-fetch when genre changes (if we already have a location, city, or artist)
   useEffect(() => {
     if (mode === "location" && locationStatus === "granted" && lat && lng) {
       fetchShows({ lat, lng, genreId });
     } else if (mode === "city" && submittedCity) {
       fetchShows({ city: submittedCity, genreId });
+    } else if (mode === "artist" && submittedArtist) {
+      fetchShows({ keyword: submittedArtist, genreId });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [genreId]);
@@ -146,9 +174,8 @@ export default function ShowsPage() {
     setMode(next);
     setShows([]);
     setError(null);
-    if (next === "city") {
-      setTimeout(() => cityInputRef.current?.focus(), 50);
-    }
+    if (next === "city") setTimeout(() => cityInputRef.current?.focus(), 50);
+    if (next === "artist") setTimeout(() => artistInputRef.current?.focus(), 50);
   }
 
   const followedCount = shows.filter((s) => s.followed).length;
@@ -175,7 +202,8 @@ export default function ShowsPage() {
       >
         {[
           { key: "location", label: "Near Me", icon: <LocationIcon /> },
-          { key: "city", label: "Search City", icon: <SearchIcon /> },
+          { key: "city", label: "By City", icon: <SearchIcon /> },
+          { key: "artist", label: "By Artist", icon: <MicIcon /> },
         ].map(({ key, label, icon }) => (
           <button
             key={key}
@@ -230,6 +258,41 @@ export default function ShowsPage() {
         </form>
       )}
 
+      {/* Artist keyword search input */}
+      {mode === "artist" && (
+        <form onSubmit={submitArtist} className="flex gap-2 mb-5">
+          <input
+            ref={artistInputRef}
+            type="text"
+            value={artistInput}
+            onChange={(e) => setArtistInput(e.target.value)}
+            placeholder="e.g. Taylor Swift, Kendrick Lamar, Radiohead"
+            className="flex-1 px-4 py-2.5 rounded-xl text-sm outline-none"
+            style={{
+              background: theme.bg.surface,
+              border: `1px solid ${theme.border.default}`,
+              color: theme.text.primary,
+            }}
+          />
+          <button
+            type="submit"
+            disabled={!artistInput.trim()}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold"
+            style={{
+              background: theme.accent.purple,
+              color: "#fff",
+              border: "none",
+              cursor: artistInput.trim() ? "pointer" : "not-allowed",
+              opacity: artistInput.trim() ? 1 : 0.5,
+              transition: "opacity 0.15s",
+            }}
+          >
+            <MicIcon />
+            Search
+          </button>
+        </form>
+      )}
+
       {/* Location prompt */}
       {mode === "location" && locationStatus !== "granted" && (
         <div
@@ -279,8 +342,8 @@ export default function ShowsPage() {
         </div>
       )}
 
-      {/* Genre filter — shown once we have a location or submitted city */}
-      {(locationStatus === "granted" || submittedCity) && (
+      {/* Genre filter — shown once we have a location, city, or artist */}
+      {(locationStatus === "granted" || submittedCity || submittedArtist) && (
         <div className="flex items-center gap-2 mb-5 flex-wrap">
           <span className="text-xs font-medium" style={{ color: theme.text.muted }}>
             Genre:
@@ -453,7 +516,7 @@ export default function ShowsPage() {
 
       {/* Empty state */}
       {!loading && !error && shows.length === 0 &&
-        (locationStatus === "granted" || submittedCity) && (
+        (locationStatus === "granted" || submittedCity || submittedArtist) && (
           <div
             className="rounded-2xl p-10 text-center"
             style={{
@@ -461,12 +524,14 @@ export default function ShowsPage() {
               border: `1px solid ${theme.border.subtle}`,
             }}
           >
-            <div className="text-4xl mb-4">🎸</div>
+            <div className="text-4xl mb-4" align="center"><Guitar /></div>
             <h2 className="font-semibold mb-2" style={{ color: theme.text.primary }}>
               No shows found
             </h2>
             <p className="text-sm" style={{ color: theme.text.muted }}>
-              {submittedCity
+              {submittedArtist
+                ? `No upcoming shows found for "${submittedArtist}"${genreId ? " in this genre" : ""}. Try a different name.`
+                : submittedCity
                 ? `No upcoming concerts in "${submittedCity}"${genreId ? " for this genre" : ""}. Try a different city or genre.`
                 : `No upcoming concerts within 100 miles${genreId ? " for this genre" : ""}. Try a different genre.`}
             </p>
