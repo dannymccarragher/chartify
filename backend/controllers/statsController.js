@@ -372,7 +372,7 @@ async function getUserTopRange(req, res) {
   }
 
   const rangeMap = {
-    '1week': "short_term",
+    '4weeks': "short_term",
     '6months': "medium_term",
     '1year': "long_term",
   };
