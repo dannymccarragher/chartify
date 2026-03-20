@@ -3,6 +3,9 @@ import db from "../db.js";
 
 import { refreshAccessToken } from "../utils/spotify.js";
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+
 // shared — used by route and cron
 export async function syncUserPlays(userId, access_token) {
   const lastPlay = await db.query(
@@ -208,7 +211,6 @@ async function getUserProfile(req, res) {
     let lastSong = lastPlayedRes.rows[0] ?? null;
 
     try {
-      // get fresh user token
       let userToken = req.session.access_token;
       if (!userToken) {
         const userRow = await db.query(
@@ -226,28 +228,59 @@ async function getUserProfile(req, res) {
       ].slice(0, 50);
 
       if (trackIds.length > 0) {
-        // fetch tracks individually (batch endpoint removed in Feb 2026)
-        const trackResults = await Promise.all(
-          trackIds.map((id) =>
-            axios
-              .get(`https://api.spotify.com/v1/tracks/${id}`, {
-                headers: { Authorization: `Bearer ${userToken}` },
-              })
-              .then((r) => r.data)
-              .catch(() => null)
-          )
-        );
-
         const albumMap = {};
         const artistIdMap = {};
 
-        for (const track of trackResults) {
-          if (!track) continue;
-          const imgs = track.album?.images ?? [];
-          albumMap[track.id] = imgs[imgs.length - 1]?.url ?? null;
-          if (track.artists?.[0]) {
-            artistIdMap[track.artists[0].name] = track.artists[0].id;
+        // check cache for tracks
+        const cachedTracksRes = await db.query(
+          `SELECT spotify_id, image_url, artist_id FROM spotify_image_cache WHERE spotify_id = ANY($1)`,
+          [trackIds]
+        );
+        const cachedTrackIds = new Set();
+        for (const row of cachedTracksRes.rows) {
+          cachedTrackIds.add(row.spotify_id);
+          albumMap[row.spotify_id] = row.image_url;
+          if (row.artist_id) {
+            const song =
+              topSongs.find((s) => s.track_id === row.spotify_id) ??
+              (lastSong?.track_id === row.spotify_id ? lastSong : null);
+            if (song) artistIdMap[song.artist_name] = row.artist_id;
           }
+        }
+        console.log(`Track cache: ${cachedTrackIds.size} hits, ${trackIds.length - cachedTrackIds.size} misses`);
+
+        // fetch uncached tracks from Spotify
+        const uncachedTrackIds = trackIds.filter((id) => !cachedTrackIds.has(id));
+        for (const id of uncachedTrackIds) {
+          // const track = await axios
+          //   .get(`https://api.spotify.com/v1/tracks/${id}`, {
+          //     headers: { Authorization: `Bearer ${userToken}` },
+          //   })
+          //   .then((r) => r.data)
+          //   .catch((err) => {
+          //     const retryAfter = err.response?.headers?.["retry-after"];
+          //     console.error(`Track ${id} failed:`, err.response?.status, `retry after: ${retryAfter}s`);
+          //     return null;
+          //   });
+          const track = null; // axios call commented out for cache testing
+
+          if (track) {
+            const imgs = track.album?.images ?? [];
+            const imageUrl = imgs[imgs.length - 1]?.url ?? null;
+            const artistId = track.artists?.[0]?.id ?? null;
+            const artistName = track.artists?.[0]?.name;
+
+            albumMap[track.id] = imageUrl;
+            if (artistName && artistId) artistIdMap[artistName] = artistId;
+
+            await db.query(
+              `INSERT INTO spotify_image_cache (spotify_id, image_url, artist_id)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (spotify_id) DO UPDATE SET image_url = $2, artist_id = $3, cached_at = NOW()`,
+              [track.id, imageUrl, artistId]
+            );
+          }
+          await sleep(500);
         }
 
         topSongs = topSongs.map((s) => ({
@@ -262,28 +295,52 @@ async function getUserProfile(req, res) {
           };
         }
 
-        // fetch artists individually (batch endpoint removed in Feb 2026)
+        // fetch artists
         const artistIds = topArtists
           .map((a) => artistIdMap[a.artist_name])
           .filter(Boolean);
 
         if (artistIds.length > 0) {
-          const artistResults = await Promise.all(
-            artistIds.map((id) =>
-              axios
-                .get(`https://api.spotify.com/v1/artists/${id}`, {
-                  headers: { Authorization: `Bearer ${userToken}` },
-                })
-                .then((r) => r.data)
-                .catch(() => null)
-            )
-          );
-
           const artistImgMap = {};
-          for (const artist of artistResults) {
-            if (!artist) continue;
-            const imgs = artist.images ?? [];
-            artistImgMap[artist.id] = imgs[imgs.length - 1]?.url ?? null;
+
+          // check cache for artists
+          const cachedArtistsRes = await db.query(
+            `SELECT spotify_id, image_url FROM spotify_image_cache WHERE spotify_id = ANY($1)`,
+            [artistIds]
+          );
+          const cachedArtistIds = new Set();
+          for (const row of cachedArtistsRes.rows) {
+            cachedArtistIds.add(row.spotify_id);
+            artistImgMap[row.spotify_id] = row.image_url;
+          }
+          console.log(`Artist cache: ${cachedArtistIds.size} hits, ${artistIds.length - cachedArtistIds.size} misses`);
+
+          // fetch uncached artists from Spotify
+          const uncachedArtistIds = artistIds.filter((id) => !cachedArtistIds.has(id));
+          for (const id of uncachedArtistIds) {
+            const artist = await axios
+              .get(`https://api.spotify.com/v1/artists/${id}`, {
+                headers: { Authorization: `Bearer ${userToken}` },
+              })
+              .then((r) => r.data)
+              .catch((err) => {
+                console.error(`Artist ${id} failed:`, err.response?.status);
+                return null;
+              });
+
+            if (artist) {
+              const imgs = artist.images ?? [];
+              const imageUrl = imgs[imgs.length - 1]?.url ?? null;
+              artistImgMap[artist.id] = imageUrl;
+
+              await db.query(
+                `INSERT INTO spotify_image_cache (spotify_id, image_url)
+                 VALUES ($1, $2)
+                 ON CONFLICT (spotify_id) DO UPDATE SET image_url = $2, cached_at = NOW()`,
+                [artist.id, imageUrl]
+              );
+            }
+            await sleep(500);
           }
 
           topArtists = topArtists.map((a) => ({
@@ -294,8 +351,6 @@ async function getUserProfile(req, res) {
       }
     } catch (spotifyErr) {
       console.error("Spotify image fetch error:", spotifyErr.message);
-      console.error("Status:", spotifyErr.response?.status);
-      console.error("Body:", JSON.stringify(spotifyErr.response?.data, null, 2));
     }
 
     return res.json({

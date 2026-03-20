@@ -105,8 +105,6 @@ async function registerPushToken(req, res) {
 }
 
 async function me(req, res){
-  console.log("me called, session:", req.session.userId);
-  console.log("req.session:", req.session);
   if (!req.session.userId) {
     return res.status(401).json({ error: "Not authenticated" });
 }
